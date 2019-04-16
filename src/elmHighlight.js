@@ -2,6 +2,8 @@ class ElmHighlight extends HTMLElement {
   constructor(...args) {
     const self = super(...args);
 
+    self._content = null;
+
     // TODO: none of these event names are standard, and they may clash with
     // ones that the browser emits. What's the best way to do this safely?
 
@@ -13,24 +15,56 @@ class ElmHighlight extends HTMLElement {
     document.addEventListener('selectionchange', function(event) {
       // if (event.target.activeElement !== self) { return; }
 
-      const range = document.getSelection().getRangeAt(0);
+      const range = self.getSelectionRange();
+      console.log(range);
 
-      console.log(document.getSelection());
-
-      self.dispatchEvent(new CustomEvent('select', { detail: {
-        start: {
-          node: range.startContainer,
-          offset: self.offsetUntil(range.startContainer) + range.startOffset
-        },
-        end: {
-          node: range.endContainer,
-          offset: self.offsetUntil(range.endContainer) + range.endOffset
-        },
-        originalEvent: range,
-      }}));
+      if (range) {
+        self.dispatchEvent(new CustomEvent('select', { detail: {
+          start: {
+            node: range.startContainer,
+            offset: self.offsetUntil(range.startContainer) + range.startOffset
+          },
+          end: {
+            node: range.endContainer,
+            offset: self.offsetUntil(range.endContainer) + range.endOffset
+          },
+          originalEvent: range,
+        }}));
+      }
     });
 
     return self;
+  }
+
+  get content() {
+    return this._content;
+  }
+
+  set content(content) {
+    if (this._content !== content) {
+      this._content = content;
+      this.clearSelection();
+    }
+  }
+
+  getSelectionRange() {
+    const sel = window.getSelection ? window.getSelection() : document.selection;
+
+    if (sel && sel.rangeCount > 0) {
+      return sel.getRangeAt(0);
+    }
+  }
+
+  clearSelection() {
+    const sel = window.getSelection ? window.getSelection() : document.selection;
+
+    if (sel) {
+      if (sel.removeAllRanges) {
+        sel.removeAllRanges();
+      } else if (sel.empty) {
+        sel.empty();
+      }
+    }
   }
 
   offsetUntil(endingAt) {

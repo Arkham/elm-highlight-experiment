@@ -5,17 +5,14 @@ import Html exposing (Html)
 import Html.Attributes as Attr
 import Html.Events exposing (on, onClick)
 import Json.Decode as Decode exposing (Decoder)
+import Json.Encode as Encode
+import List.Extra
 import Selection exposing (Selection)
 
 
 type Attribute
     = Highlight
     | Bold
-
-
-
--- type Doc
---     = Doc (List ( Char, List Attribute ))
 
 
 type
@@ -27,6 +24,10 @@ type
 type Blot
     = Text String
     | Formatted Attribute (List Blot)
+
+
+type alias EncodeTokens =
+    List ( String, List Attribute )
 
 
 type alias Tokens =
@@ -102,25 +103,6 @@ viewBlot blot =
                     Html.span [ Attr.class "highlight" ] (List.map viewBlot children)
 
 
-
--- charsWithAttrs
---     |> List.map
---         (\( c, attrs ) ->
---             Html.span (formatAttrs attrs) [ Html.text (String.fromList [ c ]) ]
--- )
--- formatAttrs : List Attribute -> List (Html.Attribute msg)
--- formatAttrs attrs =
---     attrs
---         |> List.map
---             (\attr ->
---                 case attr of
---                     Highlight ->
---                         Attr.class "highlight"
---                     Bold ->
---                         Attr.class "bold"
---             )
-
-
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
@@ -174,19 +156,22 @@ toTokens (Doc blots) =
         blots
 
 
-attributeOrder : List Attribute
-attributeOrder =
-    [ Highlight
-    , Bold
-    ]
-
-
-fromTokens : Tokens -> List Blot
+fromTokens : Tokens -> Doc
 fromTokens tokens =
+    Doc (parseTokens tokens)
+
+
+parseTokens : Tokens -> List Blot
+parseTokens tokens =
     tokens
-        |> gatherEqualsBy highestPriorityAttribute
+        |> List.map (\value -> ( highestPriorityAttribute value, value ))
+        |> List.Extra.groupWhile (\a b -> Tuple.first a == Tuple.first b)
         |> List.map
-            (\( maybeAttribute, tokens_ ) ->
+            (\( ( maybeAttribute, first ), rest ) ->
+                let
+                    tokens_ =
+                        first :: List.map Tuple.second rest
+                in
                 case maybeAttribute of
                     Nothing ->
                         tokens_
@@ -197,95 +182,127 @@ fromTokens tokens =
                     Just attribute ->
                         Formatted attribute
                             (tokens_
-                                |> List.map (\( c, attrs ) -> ( c, List.filter (\attr -> attr /= attribute) attrs ))
-                                |> fromTokens
+                                |> List.map
+                                    (\( c, attrs ) ->
+                                        ( c, List.filter (\attr -> attr /= attribute) attrs )
+                                    )
+                                |> parseTokens
                             )
             )
 
 
-gatherEqualsBy : (a -> b) -> List a -> List ( b, List a )
-gatherEqualsBy =
-    Debug.todo "TODO"
+toEncodeTokens : Tokens -> EncodeTokens
+toEncodeTokens tokens =
+    tokens
+        |> List.Extra.groupWhile
+            (\a b ->
+                Tuple.second a == Tuple.second b
+            )
+        |> List.map
+            (\( ( char, attributes ), rest ) ->
+                let
+                    chars =
+                        char :: List.map Tuple.first rest
+                in
+                ( String.fromList chars, attributes )
+            )
+
+
+attributeOrder : Attribute -> Int
+attributeOrder attr =
+    case attr of
+        Highlight ->
+            1
+
+        Bold ->
+            2
 
 
 highestPriorityAttribute : ( Char, List Attribute ) -> Maybe Attribute
 highestPriorityAttribute ( c, attrs ) =
-    Nothing
-
-
-
--- example: [fo]{[o b]ar b}az
---- tokens -> [["fo"], [ob ar b], [az]]
+    List.Extra.minimumBy attributeOrder attrs
 
 
 addAttribute : Attribute -> Selection -> Doc -> Doc
-addAttribute attribute selection (Doc charsWithAttrs) =
+addAttribute attribute selection doc =
     let
         start =
             Selection.start selection
 
         end =
             Selection.end selection
+
+        tokens =
+            toTokens doc
+
+        newTokens =
+            tokens
+                |> List.indexedMap
+                    (\index ( char, attrs ) ->
+                        if index >= start && index < end then
+                            ( char, attribute :: List.filter (\a -> a /= attribute) attrs )
+
+                        else
+                            ( char, attrs )
+                    )
+
+        bar =
+            Debug.log "tokens" tokens
+
+        foo =
+            Debug.log "newTokens" newTokens
     in
-    -- charsWithAttrs
-    --     |> List.indexedMap
-    --         (\index ( char, attrs ) ->
-    --             if index >= start && index < end then
-    --                 ( char, attribute :: List.filter (\a -> a /= attribute) attrs )
-    --             else
-    --                 ( char, attrs )
-    --         )
-    --     |> Doc
-    Debug.todo "TODO"
+    Debug.log "fromTokens" (fromTokens newTokens)
 
 
 removeAttribute : Attribute -> Selection -> Doc -> Doc
-removeAttribute attribute selection (Doc charsWithAttrs) =
+removeAttribute attribute selection doc =
     let
         start =
             Selection.start selection
 
         end =
             Selection.end selection
+
+        tokens =
+            toTokens doc
+
+        newTokens =
+            tokens
+                |> List.indexedMap
+                    (\index ( char, attrs ) ->
+                        if index >= start && index < end then
+                            ( char, List.filter (\a -> a /= attribute) attrs )
+
+                        else
+                            ( char, attrs )
+                    )
     in
-    -- charsWithAttrs
-    --     |> List.indexedMap
-    --         (\index ( char, attrs ) ->
-    --             if index >= start && index < end then
-    --                 ( char, List.filter (\a -> a /= attribute) attrs )
-    --             else
-    --                 ( char, attrs )
-    --         )
-    --     |> Doc
-    Debug.todo "TODO"
+    fromTokens newTokens
 
 
 view : Model -> Html Msg
 view model =
-    let
-        disable event =
-            Html.Events.preventDefaultOn event
-                (Decode.map
-                    (\msg -> ( msg, True ))
-                    (Decode.succeed NoOp)
-                )
-    in
     Html.main_
         []
         [ Html.p [] [ Html.text (Debug.toString model.selection) ]
         , viewToolbar
         , Html.node "elm-highlight"
-            [ Attr.attribute "contenteditable" "false"
-            , Attr.attribute "spellcheck" "false"
-            , Attr.attribute "readonly" "true"
-            , disable "paste"
-            , disable "cut"
-            , disable "keydown"
+            [ Attr.property "content" (encodeDoc model.doc)
             , on "select" decodeSelect
             ]
             (doc2Html model.doc)
         , Html.p [] [ Html.text "Foobar" ]
         ]
+
+
+encodeDoc : Doc -> Encode.Value
+encodeDoc doc =
+    doc
+        |> toTokens
+        |> toEncodeTokens
+        |> Debug.toString
+        |> Encode.string
 
 
 viewToolbar : Html Msg
