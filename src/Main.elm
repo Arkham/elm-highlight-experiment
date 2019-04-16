@@ -10,6 +10,7 @@ import Selection exposing (Selection)
 
 type Attribute
     = Highlight
+    | Bold
 
 
 type Doc
@@ -25,8 +26,8 @@ type alias Model =
 type Msg
     = NoOp
     | ChangeSelection Int Int
-    | AddHighlight
-    | RemoveHighlight
+    | AddAttribute Attribute
+    | RemoveAttribute Attribute
 
 
 main : Program () Model Msg
@@ -78,6 +79,9 @@ formatAttrs attrs =
                 case attr of
                     Highlight ->
                         Attr.class "highlight"
+
+                    Bold ->
+                        Attr.class "bold"
             )
 
 
@@ -92,23 +96,23 @@ update msg model =
             , Cmd.none
             )
 
-        AddHighlight ->
+        AddAttribute attribute ->
             ( { model
-                | doc = addHighlight model.selection model.doc
+                | doc = addAttribute attribute model.selection model.doc
               }
             , Cmd.none
             )
 
-        RemoveHighlight ->
+        RemoveAttribute attribute ->
             ( { model
-                | doc = removeHighlight model.selection model.doc
+                | doc = removeAttribute attribute model.selection model.doc
               }
             , Cmd.none
             )
 
 
-addHighlight : Selection -> Doc -> Doc
-addHighlight selection (Doc charsWithAttrs) =
+addAttribute : Attribute -> Selection -> Doc -> Doc
+addAttribute attribute selection (Doc charsWithAttrs) =
     let
         start =
             Selection.start selection
@@ -120,7 +124,7 @@ addHighlight selection (Doc charsWithAttrs) =
         |> List.indexedMap
             (\index ( char, attrs ) ->
                 if index >= start && index < end then
-                    ( char, Highlight :: List.filter (\a -> a /= Highlight) attrs )
+                    ( char, attribute :: List.filter (\a -> a /= attribute) attrs )
 
                 else
                     ( char, attrs )
@@ -128,8 +132,8 @@ addHighlight selection (Doc charsWithAttrs) =
         |> Doc
 
 
-removeHighlight : Selection -> Doc -> Doc
-removeHighlight selection (Doc charsWithAttrs) =
+removeAttribute : Attribute -> Selection -> Doc -> Doc
+removeAttribute attribute selection (Doc charsWithAttrs) =
     let
         start =
             Selection.start selection
@@ -141,7 +145,7 @@ removeHighlight selection (Doc charsWithAttrs) =
         |> List.indexedMap
             (\index ( char, attrs ) ->
                 if index >= start && index < end then
-                    ( char, List.filter (\a -> a /= Highlight) attrs )
+                    ( char, List.filter (\a -> a /= attribute) attrs )
 
                 else
                     ( char, attrs )
@@ -162,10 +166,7 @@ view model =
     Html.main_
         []
         [ Html.p [] [ Html.text (Debug.toString model.selection) ]
-        , Html.p []
-            [ Html.button [ onClick AddHighlight ] [ Html.text "Add Highlight" ]
-            , Html.button [ onClick RemoveHighlight ] [ Html.text "Remove Highlight" ]
-            ]
+        , viewToolbar
         , Html.node "elm-highlight"
             [ Attr.attribute "contenteditable" "false"
             , Attr.attribute "spellcheck" "false"
@@ -177,6 +178,16 @@ view model =
             ]
             (doc2Html model.doc)
         , Html.p [] [ Html.text "Foobar" ]
+        ]
+
+
+viewToolbar : Html Msg
+viewToolbar =
+    Html.p []
+        [ Html.button [ onClick (AddAttribute Highlight) ] [ Html.text "Add Highlight" ]
+        , Html.button [ onClick (RemoveAttribute Highlight) ] [ Html.text "Remove Highlight" ]
+        , Html.button [ onClick (AddAttribute Bold) ] [ Html.text "Add Bold" ]
+        , Html.button [ onClick (RemoveAttribute Bold) ] [ Html.text "Remove Bold" ]
         ]
 
 
