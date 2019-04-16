@@ -13,8 +13,25 @@ type Attribute
     | Bold
 
 
-type Doc
-    = Doc (List ( Char, List Attribute ))
+
+-- type Doc
+--     = Doc (List ( Char, List Attribute ))
+
+
+type
+    Doc
+    -- TODO: should this be an array?
+    = Doc (List Blot)
+
+
+type Blot
+    = Text String
+    | Formatted Attribute (List Blot)
+
+
+type alias Tokens =
+    -- TODO: should we use a set instead of list?
+    List ( Char, List Attribute )
 
 
 type alias Model =
@@ -55,34 +72,53 @@ init _ =
 
 sampleDoc : Doc
 sampleDoc =
-    "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. "
-        |> String.repeat 5
-        |> String.toList
-        |> List.map (\c -> ( c, [] ))
-        |> Doc
+    Doc
+        [ Text
+            (String.repeat 5
+                "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. "
+            )
+        ]
 
 
 doc2Html : Doc -> List (Html msg)
-doc2Html (Doc charsWithAttrs) =
-    charsWithAttrs
-        |> List.map
-            (\( c, attrs ) ->
-                Html.span (formatAttrs attrs) [ Html.text (String.fromList [ c ]) ]
-            )
+doc2Html (Doc blots) =
+    List.map
+        viewBlot
+        blots
 
 
-formatAttrs : List Attribute -> List (Html.Attribute msg)
-formatAttrs attrs =
-    attrs
-        |> List.map
-            (\attr ->
-                case attr of
-                    Highlight ->
-                        Attr.class "highlight"
+viewBlot : Blot -> Html msg
+viewBlot blot =
+    case blot of
+        Text text ->
+            Html.text text
 
-                    Bold ->
-                        Attr.class "bold"
-            )
+        Formatted attribute children ->
+            case attribute of
+                Bold ->
+                    Html.span [ Attr.class "bold" ] (List.map viewBlot children)
+
+                Highlight ->
+                    Html.span [ Attr.class "highlight" ] (List.map viewBlot children)
+
+
+
+-- charsWithAttrs
+--     |> List.map
+--         (\( c, attrs ) ->
+--             Html.span (formatAttrs attrs) [ Html.text (String.fromList [ c ]) ]
+-- )
+-- formatAttrs : List Attribute -> List (Html.Attribute msg)
+-- formatAttrs attrs =
+--     attrs
+--         |> List.map
+--             (\attr ->
+--                 case attr of
+--                     Highlight ->
+--                         Attr.class "highlight"
+--                     Bold ->
+--                         Attr.class "bold"
+--             )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -111,6 +147,77 @@ update msg model =
             )
 
 
+toTokens : Doc -> Tokens
+toTokens (Doc blots) =
+    let
+        blotTokens blot =
+            case blot of
+                Text text ->
+                    text
+                        |> String.toList
+                        |> List.map (\c -> ( c, [] ))
+
+                Formatted attribute children ->
+                    children
+                        |> List.concatMap blotTokens
+                        |> List.map
+                            (\( c, attributes ) ->
+                                -- NOTE: if we do things right, we probably
+                                -- shouldn't care about `attribute` being
+                                -- present on the recursive result.
+                                -- TODO: double check this.
+                                ( c, attribute :: attributes )
+                            )
+    in
+    List.concatMap
+        blotTokens
+        blots
+
+
+attributeOrder : List Attribute
+attributeOrder =
+    [ Highlight
+    , Bold
+    ]
+
+
+fromTokens : Tokens -> List Blot
+fromTokens tokens =
+    tokens
+        |> gatherEqualsBy highestPriorityAttribute
+        |> List.map
+            (\( maybeAttribute, tokens_ ) ->
+                case maybeAttribute of
+                    Nothing ->
+                        tokens_
+                            |> List.map Tuple.first
+                            |> String.fromList
+                            |> Text
+
+                    Just attribute ->
+                        Formatted attribute
+                            (tokens_
+                                |> List.map (\( c, attrs ) -> ( c, List.filter (\attr -> attr /= attribute) attrs ))
+                                |> fromTokens
+                            )
+            )
+
+
+gatherEqualsBy : (a -> b) -> List a -> List ( b, List a )
+gatherEqualsBy =
+    Debug.todo "TODO"
+
+
+highestPriorityAttribute : ( Char, List Attribute ) -> Maybe Attribute
+highestPriorityAttribute ( c, attrs ) =
+    Nothing
+
+
+
+-- example: [fo]{[o b]ar b}az
+--- tokens -> [["fo"], [ob ar b], [az]]
+
+
 addAttribute : Attribute -> Selection -> Doc -> Doc
 addAttribute attribute selection (Doc charsWithAttrs) =
     let
@@ -120,16 +227,16 @@ addAttribute attribute selection (Doc charsWithAttrs) =
         end =
             Selection.end selection
     in
-    charsWithAttrs
-        |> List.indexedMap
-            (\index ( char, attrs ) ->
-                if index >= start && index < end then
-                    ( char, attribute :: List.filter (\a -> a /= attribute) attrs )
-
-                else
-                    ( char, attrs )
-            )
-        |> Doc
+    -- charsWithAttrs
+    --     |> List.indexedMap
+    --         (\index ( char, attrs ) ->
+    --             if index >= start && index < end then
+    --                 ( char, attribute :: List.filter (\a -> a /= attribute) attrs )
+    --             else
+    --                 ( char, attrs )
+    --         )
+    --     |> Doc
+    Debug.todo "TODO"
 
 
 removeAttribute : Attribute -> Selection -> Doc -> Doc
@@ -141,16 +248,16 @@ removeAttribute attribute selection (Doc charsWithAttrs) =
         end =
             Selection.end selection
     in
-    charsWithAttrs
-        |> List.indexedMap
-            (\index ( char, attrs ) ->
-                if index >= start && index < end then
-                    ( char, List.filter (\a -> a /= attribute) attrs )
-
-                else
-                    ( char, attrs )
-            )
-        |> Doc
+    -- charsWithAttrs
+    --     |> List.indexedMap
+    --         (\index ( char, attrs ) ->
+    --             if index >= start && index < end then
+    --                 ( char, List.filter (\a -> a /= attribute) attrs )
+    --             else
+    --                 ( char, attrs )
+    --         )
+    --     |> Doc
+    Debug.todo "TODO"
 
 
 view : Model -> Html Msg
