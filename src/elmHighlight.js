@@ -11,17 +11,6 @@ class ElmHighlight extends HTMLElement {
 
     // TODO: probably needs like flow or TS checking as well
 
-    const resetSelection = new CustomEvent('select', { detail: {
-      start: {
-        node: self,
-        offset: 0
-      },
-      end: {
-        node: self,
-        offset: 0
-      }
-    }});
-
     // add event handler for selections
     document.addEventListener('selectionchange', function(event) {
       const range = self.getSelectionRange(self);
@@ -40,8 +29,6 @@ class ElmHighlight extends HTMLElement {
           },
           originalEvent: range,
         }}));
-      } else {
-        self.dispatchEvent(resetSelection);
       }
     });
 
