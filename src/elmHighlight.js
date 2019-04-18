@@ -11,14 +11,24 @@ class ElmHighlight extends HTMLElement {
 
     // TODO: probably needs like flow or TS checking as well
 
+    const resetSelection = new CustomEvent('select', { detail: {
+      start: {
+        node: self,
+        offset: 0
+      },
+      end: {
+        node: self,
+        offset: 0
+      }
+    }});
+
     // add event handler for selections
     document.addEventListener('selectionchange', function(event) {
-      // if (event.target.activeElement !== self) { return; }
-
-      const range = self.getSelectionRange();
-      console.log(range);
+      const range = self.getSelectionRange(self);
 
       if (range) {
+        console.log(range);
+
         self.dispatchEvent(new CustomEvent('select', { detail: {
           start: {
             node: range.startContainer,
@@ -30,6 +40,8 @@ class ElmHighlight extends HTMLElement {
           },
           originalEvent: range,
         }}));
+      } else {
+        self.dispatchEvent(resetSelection);
       }
     });
 
@@ -47,11 +59,40 @@ class ElmHighlight extends HTMLElement {
     }
   }
 
-  getSelectionRange() {
+  getSelectionRange(container) {
     const sel = window.getSelection ? window.getSelection() : document.selection;
 
     if (sel && sel.rangeCount > 0) {
-      return sel.getRangeAt(0);
+      // create a copy so we don't interfere with user selection range
+      const range = sel.getRangeAt(0).cloneRange();
+
+      // create a range which wraps the whole selection container
+      const containerRange = document.createRange();
+      containerRange.selectNodeContents(container);
+
+      // selection range is within bounds, all good
+      if (container.contains(range.startContainer) &&
+        container.contains(range.endContainer)) {
+          return range;
+      }
+
+      // selection range is either completely before or completely after
+      if (range.compareBoundaryPoints(Range.START_TO_END, containerRange) <= 0 ||
+        range.compareBoundaryPoints(Range.END_TO_START, containerRange) >= 0) {
+        return null;
+      }
+
+      // selection range starts before our container
+      if (!container.contains(range.startContainer)) {
+        range.setStart(containerRange.startContainer, 0);
+      }
+
+      // selection range ends after our container
+      if (!container.contains(range.endContainer)) {
+        range.setEndAfter(containerRange.endContainer);
+      }
+
+      return range;
     }
   }
 
